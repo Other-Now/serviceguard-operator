@@ -49,7 +49,23 @@ web    True      0          3              true         4m
 
 All results come from the CI run on a GitHub-hosted runner: kind, 1 node, operator ×2 with leader election. The full table is in the job summary and in the `e2e-results` artifact.
 
-RESULTS_PLACEHOLDER
+Source: CI run [36415025349](https://github.com/Other-Now/serviceguard-operator/actions/runs/36415025349).
+
+| Scenario | Result |
+|---|---|
+| **Break primary, 10 runs**: time to detect (break → restart issued) | p50 **4.8 s**, max 5.7 s |
+| The same runs: time to recover (break → 3 healthy probes through the Service) | p50 **8.9 s**, max 10.2 s |
+| **Flapping endpoint**, 3 s down / 3 s up for 90 s (15 cycles) | **0** remediations |
+| **Unfixable primary** (`FORCE_FAIL=1`), budget of 2 | exactly **2 restarts, then 1 failover**, standby serving after 27.6 s; **0** further actions in the following 30 s |
+| **Leader pod deleted** | standby replica held the lease after **0.56 s** |
+| **200 guards** on one controller, 10 s interval | 200/200 probed on schedule; p95 probe latency 17 ms; leader RSS 35.9 → **42.4 MiB** |
+| Unit and controller tests (`-race`) | 16 test functions, 33 cases including subtests, all passing |
+
+**Detect time matches the design.**
+- With threshold 3 and a 2 s interval, the third failed probe lands between 4 s and 6 s after the break, depending on where in the interval the break happens. The measured p50 of 4.8 s and max of 5.7 s both fall inside that range.
+- Recovery takes roughly 4 s longer. That is the rolling update itself: the new pod starts, becomes Ready, and the old pod is removed.
+
+With only 10 runs, the p95 and the max are the same run, so the table reports the max.
 
 ## Design decisions
 
