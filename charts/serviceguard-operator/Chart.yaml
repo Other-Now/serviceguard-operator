@@ -1,0 +1,6 @@
+apiVersion: v2
+name: serviceguard-operator
+description: Kubernetes operator that probes a service and heals it with bounded, rate-limited remediation.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

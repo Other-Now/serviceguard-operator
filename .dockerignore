@@ -1,0 +1,7 @@
+.git
+terraform/
+charts/
+deploy/
+docs/
+hack/
+*.exe

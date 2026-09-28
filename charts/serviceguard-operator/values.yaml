@@ -1,0 +1,17 @@
+image:
+  repository: serviceguard
+  tag: dev
+  # kind clusters get the image via `kind load`, so never pull.
+  pullPolicy: IfNotPresent
+
+# Two replicas + leader election: one acts, the other is a hot standby.
+replicas: 2
+leaderElect: true
+
+# Needed to read the expiry of self-signed certificates. Probes check
+# liveness and expiry, not trust.
+probeInsecureTLS: true
+
+resources:
+  requests: {cpu: 10m, memory: 32Mi}
+  limits: {memory: 128Mi}

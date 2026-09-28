@@ -1,0 +1,96 @@
+# Demo target for the e2e/chaos suite: a primary and a standby Deployment of
+# the same app, a Service pointing at the primary, and a ServiceGuard on it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-primary
+  namespace: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: web, track: primary}
+  template:
+    metadata:
+      labels: {app: web, track: primary}
+    spec:
+      containers:
+        - name: app
+          image: serviceguard:dev
+          imagePullPolicy: IfNotPresent
+          command: ["/demoapp"]
+          env: [{name: TRACK, value: primary}]
+          ports: [{containerPort: 8080}]
+          # Readiness is deliberately NOT /healthz: a broken pod stays in the
+          # Service, so the operator (not kube-proxy) is what notices and acts.
+          readinessProbe:
+            tcpSocket: {port: 8080}
+            periodSeconds: 1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-standby
+  namespace: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: web, track: standby}
+  template:
+    metadata:
+      labels: {app: web, track: standby}
+    spec:
+      containers:
+        - name: app
+          image: serviceguard:dev
+          imagePullPolicy: IfNotPresent
+          command: ["/demoapp"]
+          env: [{name: TRACK, value: standby}]
+          ports: [{containerPort: 8080}]
+          readinessProbe:
+            tcpSocket: {port: 8080}
+            periodSeconds: 1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: demo
+spec:
+  selector: {app: web, track: primary}
+  ports: [{port: 8080, targetPort: 8080}]
+---
+# A pod with curl, used by the chaos script to break/heal and to probe.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: chaos
+  namespace: demo
+spec:
+  containers:
+    - name: curl
+      image: curlimages/curl:8.10.1
+      command: ["sleep", "infinity"]
+---
+apiVersion: guard.other-now.dev/v1alpha1
+kind: ServiceGuard
+metadata:
+  name: web
+  namespace: demo
+spec:
+  deployment: web-primary
+  endpoint: http://web.demo.svc:8080/healthz
+  intervalSeconds: 2
+  timeoutSeconds: 1
+  failureThreshold: 3
+  remediation:
+    cooldownSeconds: 15
+    maxRestarts: 100      # the restart scenario runs many times; the budget scenario lowers this
+    windowSeconds: 600
+    failover:
+      service: web
+      selector: {app: web, track: standby}

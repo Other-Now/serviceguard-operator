@@ -1,0 +1,8 @@
+*.exe
+*.test
+bin/
+e2e-results.md
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/*.tfstate*
+terraform/*-config

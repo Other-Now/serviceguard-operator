@@ -1,0 +1,74 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: vet
+        run: go vet ./...
+      - name: generated code is up to date
+        run: |
+          go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.22.0 object crd paths=./api/v1alpha1 output:crd:dir=charts/serviceguard-operator/crds
+          git diff --exit-code
+      - name: unit + controller tests (race)
+        run: go test -race -count=1 -v ./...
+
+  e2e:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: build image
+        run: docker build -t serviceguard:dev .
+      - name: install kind
+        run: |
+          curl -sSLo kind https://kind.sigs.k8s.io/dl/v0.29.0/kind-linux-amd64
+          sudo install kind /usr/local/bin/kind
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: terraform apply (kind cluster + operator via Helm)
+        working-directory: terraform
+        run: |
+          terraform init -input=false
+          terraform fmt -check
+          terraform validate
+          terraform apply -auto-approve -input=false
+      - name: kubeconfig
+        run: |
+          kind export kubeconfig --name serviceguard
+          kubectl -n serviceguard-system get pods -o wide
+      - name: chaos / e2e suite
+        run: RUNS=10 OUT=e2e-results.md bash hack/e2e.sh
+      - name: publish results
+        if: always()
+        run: |
+          [ -f e2e-results.md ] && cat e2e-results.md >> "$GITHUB_STEP_SUMMARY" || true
+      - name: operator logs on failure
+        if: failure()
+        run: |
+          kubectl -n serviceguard-system logs -l app.kubernetes.io/name=serviceguard-operator --tail=200 --prefix || true
+          kubectl -n demo get sg,pods,events || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-results
+          path: e2e-results.md
+          if-no-files-found: ignore
+      - name: terraform destroy
+        if: always()
+        working-directory: terraform
+        run: terraform destroy -auto-approve -input=false || true
